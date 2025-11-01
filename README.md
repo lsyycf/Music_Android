@@ -2,8 +2,6 @@
 
 <h1 align="center">🎵 Music 音乐播放器</h1>
 
-<img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="应用图标" width="120" />
-
 ### 一款简洁优雅的 Android 本地音乐播放器
 
 [![Android](https://img.shields.io/badge/Android-26%2B-green?logo=android)](https://www.android.com/)
@@ -270,25 +268,6 @@ buildTypes {
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启 Pull Request
 
-## 📄 开源协议
-
-本项目采用 [MIT License](LICENSE) 开源协议。
-
-```
-MIT License
-
-Copyright (c) 2025 Music Project
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-```
 
 ## 💡 致谢
 
