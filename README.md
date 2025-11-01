@@ -245,10 +245,6 @@ buildTypes {
 - **项目主页**: [https://github.com/yourusername/Music](https://github.com/yourusername/Music)
 - **Issue 反馈**: [https://github.com/yourusername/Music/issues](https://github.com/yourusername/Music/issues)
 
-## ⭐ Star History
-
-如果这个项目对你有帮助，请给个 Star ⭐️ 支持一下！
-
 ---
 
 <div align="center">
