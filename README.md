@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1 align="center">🎵 Music 音乐播放器</h1>
+<h1 align="center">🎵 本地音乐播放器</h1>
 
 ### 一款简洁优雅的 Android 本地音乐播放器
 
