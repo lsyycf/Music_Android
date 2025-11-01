@@ -141,7 +141,7 @@ cd Music
 
 3. **配置签名（可选）**
 ```bash
-# 在项目根目录创建 keystore.properties（如需发布）
+# 在项目根目录创建 keystore.properties
 storePassword=your_store_password
 keyPassword=your_key_password
 keyAlias=your_key_alias
