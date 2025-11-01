@@ -131,7 +131,7 @@
 
 1. **克隆项目**
 ```bash
-git clone https://github.com/yourusername/Music.git
+git clone https://github.com/lsyycf/Music_Android.git
 cd Music
 ```
 
