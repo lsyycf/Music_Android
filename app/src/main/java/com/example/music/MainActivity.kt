@@ -19,6 +19,8 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MainActivity"
     }
     
+    private var viewModel: MusicViewModel? = null
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         Log.d(TAG, "onCreate: Starting")
         super.onCreate(savedInstanceState)
@@ -32,22 +34,25 @@ class MainActivity : ComponentActivity() {
                 MusicTheme {
                     Log.d(TAG, "MusicTheme: Applied")
                     val context = LocalContext.current
-                    val viewModel = remember { 
+                    val vm = remember { 
                         Log.d(TAG, "Creating MusicViewModel")
                         MusicViewModel(context.applicationContext)
                     }
                     
+                    // 保存ViewModel引用以便在生命周期方法中使用
+                    viewModel = vm
+                    
                     DisposableEffect(Unit) {
                         Log.d(TAG, "DisposableEffect: Binding service")
-                        viewModel.bindService()
+                        vm.bindService()
                         onDispose {
-                            Log.d(TAG, "DisposableEffect: Disposing")
-                            viewModel.saveCurrentState()
-                            viewModel.unbindService()
+                            Log.d(TAG, "DisposableEffect: Disposing, saving state")
+                            vm.saveCurrentState()
+                            vm.unbindService()
                         }
                     }
                     
-                    MusicPlayerScreen(viewModel = viewModel)
+                    MusicPlayerScreen(viewModel = vm)
                 }
             }
             Log.d(TAG, "onCreate: Completed")
@@ -59,11 +64,23 @@ class MainActivity : ComponentActivity() {
     
     override fun onPause() {
         super.onPause()
-        // 保存当前状态
+        Log.d(TAG, "onPause: Saving current state")
+        // 应用进入后台时保存状态
+        viewModel?.saveCurrentState()
     }
     
     override fun onStop() {
         super.onStop()
-        // 保存当前状态
+        Log.d(TAG, "onStop: Saving current state")
+        // 应用完全不可见时再次保存状态（双重保障）
+        viewModel?.saveCurrentState()
+    }
+    
+    override fun onDestroy() {
+        Log.d(TAG, "onDestroy: Saving current state before destroy")
+        // 应用销毁时最后一次保存状态
+        viewModel?.saveCurrentState()
+        super.onDestroy()
+        viewModel = null
     }
 }

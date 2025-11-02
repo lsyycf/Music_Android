@@ -615,6 +615,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                         }
                     }
                 }
+                
+                // 在切歌完成后保存状态（确保索引已经更新完毕）
+                saveCurrentState()
             }
             
             // 销毁前一首的MusicItem（延迟销毁，避免UI闪烁）
@@ -624,8 +627,6 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                 // GC会在需要时自动回收
             }
         }
-        
-        saveCurrentState()
     }
 
     fun playPrevious() {
@@ -683,6 +684,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                         }
                     }
                 }
+                
+                // 在切歌完成后保存状态（确保索引已经更新完毕）
+                saveCurrentState()
             }
             
             // 延迟销毁
@@ -690,8 +694,6 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                 delay(100)
             }
         }
-        
-        saveCurrentState()
     }
     
     /**
@@ -861,6 +863,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
         
         Log.d(TAG, "commitSeek: Seeked to $safePosition, 播放状态保持不变")
         
+        // 保存当前状态（进度条移动后保存）
+        saveCurrentState()
+        
         // 延迟重置拖动标志，避免状态闪烁，确保整个过程中播放状态不受影响
         seekResetJob = viewModelScope.launch {
             delay(200)
@@ -891,6 +896,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
             _currentPosition.value = it.getCurrentPosition()
         }
         
+        // 保存当前状态（快进后保存进度）
+        saveCurrentState()
+        
         // 延迟重置拖动标志，避免状态闪烁
         seekResetJob = viewModelScope.launch {
             delay(200)
@@ -910,6 +918,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
         musicService?.let {
             _currentPosition.value = it.getCurrentPosition()
         }
+        
+        // 保存当前状态（快退后保存进度）
+        saveCurrentState()
         
         // 延迟重置拖动标志，避免状态闪烁
         seekResetJob = viewModelScope.launch {

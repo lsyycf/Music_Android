@@ -166,10 +166,17 @@ class MusicService : Service() {
     override fun onDestroy() {
         Log.d(TAG, "onDestroy: Service destroying, saving current state")
         
-        // 保存当前播放状态
+        // 保存当前播放状态（Service退出时的兜底保存）
         if (currentFolder.isNotEmpty() && currentSongPaths.isNotEmpty()) {
             try {
-                val currentPosition = player.currentPosition
+                // 获取最新的播放位置（考虑播放中的情况）
+                val currentPosition = if (player.isPlaying) {
+                    player.currentPosition
+                } else {
+                    // 暂停状态下也获取当前位置
+                    player.currentPosition
+                }
+                
                 val state = PlaylistState(
                     songPaths = currentSongPaths,
                     currentIndex = currentIndexValue,
@@ -180,11 +187,13 @@ class MusicService : Service() {
                 // 使用 runBlocking 确保在服务销毁前保存完成
                 kotlinx.coroutines.runBlocking {
                     preferencesManager.savePlaylistState(currentFolder, state)
-                    Log.d(TAG, "onDestroy: Saved state - position: ${currentPosition}ms, index: $currentIndexValue")
+                    Log.d(TAG, "onDestroy: Saved state - folder: $currentFolder, position: ${currentPosition}ms, index: $currentIndexValue, paths: ${currentSongPaths.size}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "onDestroy: Error saving state", e)
             }
+        } else {
+            Log.d(TAG, "onDestroy: No state to save (folder or playlist empty)")
         }
         
         serviceScope.cancel()
