@@ -323,6 +323,7 @@ class MusicViewModel(private val context: Context) : ViewModel() {
             if (currentPaths.isEmpty()) {
                 withContext(Dispatchers.Main) {
                     _currentMusicItem.value = null
+                    _currentPosition.value = 0L
                 }
                 return@launch
             }
@@ -335,6 +336,7 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                     _songPaths.value = emptyList()
                     _currentMusicItem.value = null
                     _currentIndex.value = 0
+                    _currentPosition.value = 0L
                 }
                 return@launch
             }
@@ -351,6 +353,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                     Log.w(TAG, "loadCurrentMusicItem: File not found: $path, direction=$direction, skipping")
                     val oldIndex = _currentIndex.value
                     val mutablePaths = _songPaths.value.toMutableList()
+                    
+                    // 重置播放位置（文件不存在，切换到新文件时位置应该清零）
+                    _currentPosition.value = 0L
                     
                     val pathIndex = mutablePaths.indexOf(path)
                     if (pathIndex >= 0) {
@@ -620,6 +625,7 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                 withContext(Dispatchers.Main) {
                     _currentMusicItem.value = null
                     _isPlaying.value = false
+                    _currentPosition.value = 0L
                 }
                 return@launch
             }
@@ -633,6 +639,7 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                     _currentMusicItem.value = null
                     _currentIndex.value = 0
                     _isPlaying.value = false
+                    _currentPosition.value = 0L
                 }
                 return@launch
             }
@@ -649,6 +656,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                     Log.w(TAG, "loadAndPlay: File not found or invalid: $path, direction=$direction, skipping")
                     val oldIndex = _currentIndex.value
                     val mutablePaths = _songPaths.value.toMutableList()
+                    
+                    // 重置播放位置（文件不存在，切换到新文件时位置应该清零）
+                    _currentPosition.value = 0L
                     
                     // 从列表中移除无效文件
                     val pathIndex = mutablePaths.indexOf(path)
