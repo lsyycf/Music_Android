@@ -99,9 +99,8 @@ class MusicService : Service() {
                             return
                         }
                         _isPlaying.value = playing
-                        if (playing) {
-                            startForegroundService()
-                        }
+                        // 更新通知栏显示播放状态
+                        updateNotification()
                     }
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -151,21 +150,26 @@ class MusicService : Service() {
         super.onDestroy()
     }
 
-    private fun startForegroundService() {
+    private fun updateNotification() {
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, notificationIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        // 根据播放状态显示不同的标题
+        val statusTitle = if (_isPlaying.value) "正在播放" else "已暂停"
+
         val notification = NotificationCompat.Builder(this, MusicApplication.NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("正在播放")
+            .setContentTitle(statusTitle)
             .setContentText(currentTrackTitle)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
 
+        // 使用startForeground确保服务在前台运行，同时更新通知
+        // 如果服务已经在前台，startForeground只是更新通知，不会重复启动
         startForeground(MusicApplication.NOTIFICATION_ID, notification)
     }
 
@@ -221,6 +225,8 @@ class MusicService : Service() {
                 player.seekTo(startPosition)
             }
             // 不自动播放，等待外部调用play()
+            // 更新通知栏显示新歌曲信息
+            updateNotification()
         } catch (e: Exception) {
             Log.e(TAG, "setCurrentTrack: Error setting track", e)
             e.printStackTrace()
@@ -258,6 +264,8 @@ class MusicService : Service() {
     fun pause() {
         _currentPosition.value = player.currentPosition
         player.pause()
+        // 更新通知栏显示暂停状态
+        updateNotification()
     }
 
     fun playNext() {
