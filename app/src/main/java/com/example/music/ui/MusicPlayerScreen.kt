@@ -249,23 +249,90 @@ fun MusicPlayerScreen(viewModel: MusicViewModel) {
                         else -> "无音乐, 请选择文件夹"
                     }
                     val scrollState = rememberScrollState()
+                    var isUserInteracting by remember { mutableStateOf(false) }
+                    var isAutoScrolling by remember { mutableStateOf(false) }
+                    var lastScrollValue by remember { mutableStateOf(0) }
+                    var lastInteractionTime by remember { mutableStateOf(0L) }
+                    
+                    // 监听用户手动滚动
+                    LaunchedEffect(scrollState.value) {
+                        val currentValue = scrollState.value
+                        val currentTime = System.currentTimeMillis()
+                        // 如果滚动值变化且不是自动滚动导致的，则认为是用户交互
+                        if (currentValue != lastScrollValue && !isAutoScrolling) {
+                            isUserInteracting = true
+                            lastInteractionTime = currentTime
+                        }
+                        lastScrollValue = currentValue
+                    }
+                    
+                    // 用户交互后3秒自动恢复滚动
+                    LaunchedEffect(lastInteractionTime) {
+                        if (lastInteractionTime > 0) {
+                            delay(3000) // 等待3秒
+                            // 检查最后一次交互是否已经过了3秒
+                            val elapsed = System.currentTimeMillis() - lastInteractionTime
+                            if (elapsed >= 3000) {
+                                isUserInteracting = false
+                            }
+                        }
+                    }
                     
                     // 使用 LaunchedEffect 自动滚动（当文本超出宽度时）
                     LaunchedEffect(songTitle) {
                         // 等待布局完成
                         delay(1000)
                         while (scrollState.maxValue > 0) {
+                            // 如果用户正在交互，等待交互结束
+                            while (isUserInteracting) {
+                                delay(100) // 等待用户交互结束
+                            }
+                            
                             // 先滚动到末尾，使用慢速动画
-                            scrollState.animateScrollTo(
-                                scrollState.maxValue,
-                                animationSpec = tween(durationMillis = 3000)
-                            )
+                            isAutoScrolling = true
+                            try {
+                                scrollState.animateScrollTo(
+                                    scrollState.maxValue,
+                                    animationSpec = tween(durationMillis = 3000)
+                                )
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                // 如果被取消，说明用户手动滚动了
+                                isUserInteracting = true
+                                lastInteractionTime = System.currentTimeMillis()
+                            }
+                            isAutoScrolling = false
+                            
+                            // 如果用户在此期间交互了，等待交互结束
+                            while (isUserInteracting) {
+                                delay(100)
+                            }
+                            
                             delay(3000) // 停留3秒
+                            
+                            // 如果用户在此期间交互了，等待交互结束
+                            while (isUserInteracting) {
+                                delay(100)
+                            }
+                            
                             // 再滚动回开头，使用慢速动画
-                            scrollState.animateScrollTo(
-                                0,
-                                animationSpec = tween(durationMillis = 3000)
-                            )
+                            isAutoScrolling = true
+                            try {
+                                scrollState.animateScrollTo(
+                                    0,
+                                    animationSpec = tween(durationMillis = 3000)
+                                )
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                // 如果被取消，说明用户手动滚动了
+                                isUserInteracting = true
+                                lastInteractionTime = System.currentTimeMillis()
+                            }
+                            isAutoScrolling = false
+                            
+                            // 如果用户在此期间交互了，等待交互结束
+                            while (isUserInteracting) {
+                                delay(100)
+                            }
+                            
                             delay(3000) // 停留3秒后重新开始
                         }
                     }
@@ -274,7 +341,14 @@ fun MusicPlayerScreen(viewModel: MusicViewModel) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(scrollState),
+                            .horizontalScroll(scrollState)
+                            .pointerInput(Unit) {
+                                // 检测用户点击，设置交互标志
+                                detectTapGestures {
+                                    isUserInteracting = true
+                                    lastInteractionTime = System.currentTimeMillis()
+                                }
+                            },
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -371,6 +445,9 @@ fun MusicPlayerScreen(viewModel: MusicViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
             ) {
+                // 记住用户拖动/点击的目标位置
+                var targetSeekPosition by remember { mutableStateOf(0L) }
+                
                 Box(modifier = Modifier.fillMaxWidth()) {
                     // 进度条轨道（底层）
                     val interactionSource = remember { MutableInteractionSource() }
@@ -383,16 +460,18 @@ fun MusicPlayerScreen(viewModel: MusicViewModel) {
                             0f
                         },
                         onValueChange = { progress ->
-                            // 拖动时只预览，不真正 seek，不影响播放
-                            if (!isLoading) {
-                                viewModel.previewSeek((progress * duration).toLong())
+                            // 拖动/点击时只预览，不真正 seek，不影响播放
+                            if (!isLoading && duration > 0) {
+                                val seekPosition = (progress * duration).toLong()
+                                targetSeekPosition = seekPosition
+                                viewModel.previewSeek(seekPosition)
                             }
                         },
                         onValueChangeFinished = {
-                            // 松手时才真正执行 seek
-                            if (!isLoading) {
-                                val progress = if (duration > 0) currentPosition.toFloat() / duration.toFloat() else 0f
-                                viewModel.commitSeek((progress * duration).toLong())
+                            // 松手/点击完成时才真正执行 seek
+                            // 使用保存的目标位置，而不是当前位置
+                            if (!isLoading && duration > 0) {
+                                viewModel.commitSeek(targetSeekPosition)
                             }
                         },
                         modifier = Modifier

@@ -96,6 +96,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
     // 切歌状态重置Job（用于管理延迟重置，防止快速切歌时的状态闪烁）
     private var songSwitchResetJob: Job? = null
     
+    // 进度条拖动状态重置Job（防止快速点击时状态闪烁）
+    private var seekResetJob: Job? = null
+    
     // 从持久化文件实时检查当前文件夹是否有保存的状态
     val hasSavedState: StateFlow<Boolean> = _currentFolder.flatMapLatest { folder ->
         if (folder.isEmpty()) {
@@ -132,8 +135,8 @@ class MusicViewModel(private val context: Context) : ViewModel() {
 
             viewModelScope.launch {
                 musicService?.isPlaying?.collect { playing ->
-                    // 在切歌期间忽略播放状态变化，避免 UI 闪烁
-                    if (!isSwitchingSong) {
+                    // 在切歌期间或拖动进度条期间忽略播放状态变化
+                    if (!isSwitchingSong && !_isDraggingProgressBar.value) {
                         _isPlaying.value = playing
                         if (playing) {
                             startPositionUpdates()
@@ -141,7 +144,12 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                             stopPositionUpdates()
                         }
                     } else {
-                        Log.d(TAG, "serviceConnection: Ignoring isPlaying change during song switch: $playing")
+                        if (isSwitchingSong) {
+                            Log.d(TAG, "serviceConnection: Ignoring isPlaying change during song switch: $playing")
+                        }
+                        if (_isDraggingProgressBar.value) {
+                            Log.d(TAG, "serviceConnection: Ignoring isPlaying change during progress bar drag: $playing")
+                        }
                     }
                 }
             }
@@ -814,19 +822,28 @@ class MusicViewModel(private val context: Context) : ViewModel() {
     /**
      * 预览拖动位置（拖动期间调用）
      * 只更新 UI 显示，不影响实际播放
+     * 严格禁止任何播放状态变化
      */
     fun previewSeek(position: Long) {
+        // 取消之前的重置Job，防止快速操作时状态闪烁
+        seekResetJob?.cancel()
+        
+        // 立即设置拖动标志，阻止任何播放状态变化
         _isDraggingProgressBar.value = true
         _previewPosition.value = position
         _currentPosition.value = position
+        
+        Log.d(TAG, "previewSeek: position=$position, dragging=true, 不影响播放状态")
     }
     
     /**
      * 提交拖动位置（松手时调用）
      * 真正执行 seek 操作
+     * 严格禁止任何播放状态变化 - 只 seek 位置，不改变播放/暂停状态
      */
     fun commitSeek(position: Long) {
-        _isDraggingProgressBar.value = false
+        // 取消之前的重置Job，防止快速操作时状态闪烁
+        seekResetJob?.cancel()
         
         // 检查目标位置是否超出当前歌曲时长（可能已经切歌了）
         val currentDuration = _duration.value
@@ -838,9 +855,17 @@ class MusicViewModel(private val context: Context) : ViewModel() {
             position
         }
         
-        // 执行真正的 seek
+        // 执行真正的 seek - 只改变位置，不影响播放状态
         musicService?.seekTo(safePosition)
         _currentPosition.value = safePosition
+        
+        Log.d(TAG, "commitSeek: Seeked to $safePosition, 播放状态保持不变")
+        
+        // 延迟重置拖动标志，避免状态闪烁，确保整个过程中播放状态不受影响
+        seekResetJob = viewModelScope.launch {
+            delay(200)
+            _isDraggingProgressBar.value = false
+        }
     }
     
     /**
@@ -854,18 +879,42 @@ class MusicViewModel(private val context: Context) : ViewModel() {
     }
 
     fun fastForward() {
+        // 取消之前的重置Job，防止快速操作时状态闪烁
+        seekResetJob?.cancel()
+        
+        // 设置拖动标志，阻止播放状态更新
+        _isDraggingProgressBar.value = true
+        
         musicService?.fastForward()
         // 立即同步当前位置到 ViewModel，确保 UI 实时更新
         musicService?.let {
             _currentPosition.value = it.getCurrentPosition()
         }
+        
+        // 延迟重置拖动标志，避免状态闪烁
+        seekResetJob = viewModelScope.launch {
+            delay(200)
+            _isDraggingProgressBar.value = false
+        }
     }
 
     fun rewind() {
+        // 取消之前的重置Job，防止快速操作时状态闪烁
+        seekResetJob?.cancel()
+        
+        // 设置拖动标志，阻止播放状态更新
+        _isDraggingProgressBar.value = true
+        
         musicService?.rewind()
         // 立即同步当前位置到 ViewModel，确保 UI 实时更新
         musicService?.let {
             _currentPosition.value = it.getCurrentPosition()
+        }
+        
+        // 延迟重置拖动标志，避免状态闪烁
+        seekResetJob = viewModelScope.launch {
+            delay(200)
+            _isDraggingProgressBar.value = false
         }
     }
 
