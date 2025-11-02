@@ -83,6 +83,19 @@ class MusicViewModel(private val context: Context) : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
     
+    // 进度条拖动状态
+    private val _isDraggingProgressBar = MutableStateFlow(false)
+    val isDraggingProgressBar: StateFlow<Boolean> = _isDraggingProgressBar.asStateFlow()
+    
+    // 拖动时的预览位置（不影响实际播放）
+    private val _previewPosition = MutableStateFlow(0L)
+    
+    // 切歌状态标志（防止状态闪烁）
+    private var isSwitchingSong = false
+    
+    // 切歌状态重置Job（用于管理延迟重置，防止快速切歌时的状态闪烁）
+    private var songSwitchResetJob: Job? = null
+    
     // 从持久化文件实时检查当前文件夹是否有保存的状态
     val hasSavedState: StateFlow<Boolean> = _currentFolder.flatMapLatest { folder ->
         if (folder.isEmpty()) {
@@ -119,11 +132,16 @@ class MusicViewModel(private val context: Context) : ViewModel() {
 
             viewModelScope.launch {
                 musicService?.isPlaying?.collect { playing ->
-                    _isPlaying.value = playing
-                    if (playing) {
-                        startPositionUpdates()
+                    // 在切歌期间忽略播放状态变化，避免 UI 闪烁
+                    if (!isSwitchingSong) {
+                        _isPlaying.value = playing
+                        if (playing) {
+                            startPositionUpdates()
+                        } else {
+                            stopPositionUpdates()
+                        }
                     } else {
-                        stopPositionUpdates()
+                        Log.d(TAG, "serviceConnection: Ignoring isPlaying change during song switch: $playing")
                     }
                 }
             }
@@ -210,8 +228,11 @@ class MusicViewModel(private val context: Context) : ViewModel() {
         positionUpdateJob?.cancel()
         positionUpdateJob = viewModelScope.launch {
             while (isActive) {
-                musicService?.let {
-                    _currentPosition.value = it.getCurrentPosition()
+                // 拖动进度条时不更新位置，避免冲突
+                if (!_isDraggingProgressBar.value) {
+                    musicService?.let {
+                        _currentPosition.value = it.getCurrentPosition()
+                    }
                 }
                 delay(100)
             }
@@ -268,6 +289,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                     _currentIndex.value = updatedIndex
                     _playMode.value = savedState.playMode
                     _currentPosition.value = savedState.position
+                    
+                    // 同步保存的play_mode到UI按钮显示（不修改按钮点击逻辑）
+                    _nextNewPlaylistMode.value = savedState.playMode
                     
                     // 懒加载：只创建当前播放的MusicItem
                     if (updatedPaths.isNotEmpty() && updatedIndex < updatedPaths.size) {
@@ -463,6 +487,9 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                     _playMode.value = savedState.playMode
                     _currentPosition.value = savedState.position
                     
+                    // 同步保存的play_mode到UI按钮显示（不修改按钮点击逻辑）
+                    _nextNewPlaylistMode.value = savedState.playMode
+                    
                     // 懒加载：只创建当前播放的MusicItem
                     if (updatedPaths.isNotEmpty() && updatedIndex < updatedPaths.size) {
                         loadCurrentMusicItem(updatedPaths[updatedIndex])
@@ -523,8 +550,15 @@ class MusicViewModel(private val context: Context) : ViewModel() {
     fun playNext() {
         val wasPlaying = _isPlaying.value
         
-        // 先暂停并保存当前状态（避免position闪烁）
-        if (wasPlaying) {
+        // 开始切歌，防止状态闪烁（在 ViewModel 和 Service 两层都设置）
+        isSwitchingSong = true
+        musicService?.startSongSwitch()
+        
+        // 取消之前的切歌状态重置Job（防止快速切歌时状态闪烁）
+        songSwitchResetJob?.cancel()
+        
+        // 如果正在拖动，不要暂停播放（让音乐继续，用户松手后会 seek）
+        if (wasPlaying && !_isDraggingProgressBar.value) {
             musicService?.pause()
         }
         
@@ -534,6 +568,7 @@ class MusicViewModel(private val context: Context) : ViewModel() {
             _currentIndex.value = nextIndex
             
             // 重置position为0（新歌从头开始）
+            // 即使在拖动也要重置，因为新歌时长可能不同
             _currentPosition.value = 0L
             
             val nextPath = _songPaths.value[nextIndex]
@@ -543,6 +578,26 @@ class MusicViewModel(private val context: Context) : ViewModel() {
             } else {
                 // 暂停状态，只加载不播放
                 loadCurrentMusicItem(nextPath, direction = PlayDirection.NEXT)
+            }
+            
+            // 延迟结束切歌状态（等待新歌加载完成）
+            // 使用Job管理，这样快速切歌时可以取消之前的重置
+            songSwitchResetJob = viewModelScope.launch {
+                delay(300)
+                isSwitchingSong = false
+                musicService?.endSongSwitch()
+                // 同步实际的播放状态
+                musicService?.let { service ->
+                    val actualPlaying = service.isPlaying.value
+                    if (_isPlaying.value != actualPlaying) {
+                        _isPlaying.value = actualPlaying
+                        if (actualPlaying) {
+                            startPositionUpdates()
+                        } else {
+                            stopPositionUpdates()
+                        }
+                    }
+                }
             }
             
             // 销毁前一首的MusicItem（延迟销毁，避免UI闪烁）
@@ -559,8 +614,15 @@ class MusicViewModel(private val context: Context) : ViewModel() {
     fun playPrevious() {
         val wasPlaying = _isPlaying.value
         
-        // 先暂停并保存当前状态
-        if (wasPlaying) {
+        // 开始切歌，防止状态闪烁（在 ViewModel 和 Service 两层都设置）
+        isSwitchingSong = true
+        musicService?.startSongSwitch()
+        
+        // 取消之前的切歌状态重置Job（防止快速切歌时状态闪烁）
+        songSwitchResetJob?.cancel()
+        
+        // 如果正在拖动，不要暂停播放（让音乐继续，用户松手后会 seek）
+        if (wasPlaying && !_isDraggingProgressBar.value) {
             musicService?.pause()
         }
         
@@ -573,7 +635,8 @@ class MusicViewModel(private val context: Context) : ViewModel() {
             }
             _currentIndex.value = prevIndex
             
-            // 重置position为0
+            // 重置position为0（新歌从头开始）
+            // 即使在拖动也要重置，因为新歌时长可能不同
             _currentPosition.value = 0L
             
             val prevPath = _songPaths.value[prevIndex]
@@ -583,6 +646,26 @@ class MusicViewModel(private val context: Context) : ViewModel() {
             } else {
                 // 暂停状态，只加载不播放
                 loadCurrentMusicItem(prevPath, direction = PlayDirection.PREV)
+            }
+            
+            // 延迟结束切歌状态（等待新歌加载完成）
+            // 使用Job管理，这样快速切歌时可以取消之前的重置
+            songSwitchResetJob = viewModelScope.launch {
+                delay(300)
+                isSwitchingSong = false
+                musicService?.endSongSwitch()
+                // 同步实际的播放状态
+                musicService?.let { service ->
+                    val actualPlaying = service.isPlaying.value
+                    if (_isPlaying.value != actualPlaying) {
+                        _isPlaying.value = actualPlaying
+                        if (actualPlaying) {
+                            startPositionUpdates()
+                        } else {
+                            stopPositionUpdates()
+                        }
+                    }
+                }
             }
             
             // 延迟销毁
@@ -719,6 +802,41 @@ class MusicViewModel(private val context: Context) : ViewModel() {
         }
     }
 
+    /**
+     * 预览拖动位置（拖动期间调用）
+     * 只更新 UI 显示，不影响实际播放
+     */
+    fun previewSeek(position: Long) {
+        _isDraggingProgressBar.value = true
+        _previewPosition.value = position
+        _currentPosition.value = position
+    }
+    
+    /**
+     * 提交拖动位置（松手时调用）
+     * 真正执行 seek 操作
+     */
+    fun commitSeek(position: Long) {
+        _isDraggingProgressBar.value = false
+        
+        // 检查目标位置是否超出当前歌曲时长（可能已经切歌了）
+        val currentDuration = _duration.value
+        val safePosition = if (currentDuration > 0 && position >= currentDuration) {
+            // 超出时长，限制在时长范围内
+            Log.d(TAG, "commitSeek: Position $position exceeds duration $currentDuration, clamping")
+            (currentDuration - 1000).coerceAtLeast(0)
+        } else {
+            position
+        }
+        
+        // 执行真正的 seek
+        musicService?.seekTo(safePosition)
+        _currentPosition.value = safePosition
+    }
+    
+    /**
+     * 直接跳转（用于快进快退等操作）
+     */
     fun seekTo(position: Long) {
         // 只调用 Service，由 Service 负责更新状态
         musicService?.seekTo(position)

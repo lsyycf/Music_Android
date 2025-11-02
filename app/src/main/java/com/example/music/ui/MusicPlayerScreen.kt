@@ -335,10 +335,10 @@ fun MusicPlayerScreen(viewModel: MusicViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (songPaths.isNotEmpty()) {
-                                "${currentIndex + 1} / ${songPaths.size}"
-                            } else {
+                            text = if (isLoading || songPaths.isEmpty()) {
                                 "0 / 0"
+                            } else {
+                                "${currentIndex + 1} / ${songPaths.size}"
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
@@ -350,7 +350,11 @@ fun MusicPlayerScreen(viewModel: MusicViewModel) {
                         )
                         
                         Text(
-                            text = "${MusicUtils.formatTime(currentPosition)} / ${MusicUtils.formatTime(duration)}",
+                            text = if (isLoading) {
+                                "00:00 / 00:00"
+                            } else {
+                                "${MusicUtils.formatTime(currentPosition)} / ${MusicUtils.formatTime(duration)}"
+                            },
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = FontWeight.Medium
                             ),
@@ -371,9 +375,25 @@ fun MusicPlayerScreen(viewModel: MusicViewModel) {
                     // 进度条轨道（底层）
                     val interactionSource = remember { MutableInteractionSource() }
                     Slider(
-                        value = if (duration > 0) currentPosition.toFloat() / duration.toFloat() else 0f,
+                        value = if (isLoading) {
+                            0f
+                        } else if (duration > 0) {
+                            currentPosition.toFloat() / duration.toFloat()
+                        } else {
+                            0f
+                        },
                         onValueChange = { progress ->
-                            viewModel.seekTo((progress * duration).toLong())
+                            // 拖动时只预览，不真正 seek，不影响播放
+                            if (!isLoading) {
+                                viewModel.previewSeek((progress * duration).toLong())
+                            }
+                        },
+                        onValueChangeFinished = {
+                            // 松手时才真正执行 seek
+                            if (!isLoading) {
+                                val progress = if (duration > 0) currentPosition.toFloat() / duration.toFloat() else 0f
+                                viewModel.commitSeek((progress * duration).toLong())
+                            }
                         },
                         modifier = Modifier
                             .fillMaxWidth()

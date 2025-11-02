@@ -56,6 +56,11 @@ class MusicService : Service() {
     
     // 防止 seek 操作期间的播放状态闪烁
     private var isSeeking = false
+    private var wasPlayingBeforeSeek = false
+    private var seekHandler: android.os.Handler? = null
+    
+    // 防止切歌时的播放状态闪烁
+    private var isSwitchingSong = false
     
     // 懒加载模式：存储当前播放的曲目标题
     private var currentTrackTitle: String = "无音乐"
@@ -82,10 +87,15 @@ class MusicService : Service() {
             player = ExoPlayer.Builder(this).build().apply {
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
-                        Log.d(TAG, "onIsPlayingChanged: $playing, isSeeking=$isSeeking")
+                        Log.d(TAG, "onIsPlayingChanged: $playing, isSeeking=$isSeeking, isSwitchingSong=$isSwitchingSong")
                         // 在 seek 操作期间，忽略播放状态变化（避免闪烁）
                         if (isSeeking) {
                             Log.d(TAG, "onIsPlayingChanged: Ignoring state change during seek")
+                            return
+                        }
+                        // 在切歌期间，忽略播放状态变化（避免闪烁）
+                        if (isSwitchingSong) {
+                            Log.d(TAG, "onIsPlayingChanged: Ignoring state change during song switch")
                             return
                         }
                         _isPlaying.value = playing
@@ -216,6 +226,24 @@ class MusicService : Service() {
             e.printStackTrace()
         }
     }
+    
+    /**
+     * 开始切歌（防止状态闪烁）
+     */
+    fun startSongSwitch() {
+        isSwitchingSong = true
+        Log.d(TAG, "startSongSwitch: Song switch started")
+    }
+    
+    /**
+     * 结束切歌（恢复状态更新）
+     */
+    fun endSongSwitch() {
+        isSwitchingSong = false
+        // 同步实际的播放状态
+        _isPlaying.value = player.isPlaying
+        Log.d(TAG, "endSongSwitch: Song switch ended, isPlaying=${player.isPlaying}")
+    }
 
     fun play() {
         // 懒加载模式：不检查playlist，直接播放已加载的MediaItem
@@ -243,6 +271,12 @@ class MusicService : Service() {
     }
 
     fun seekTo(position: Long) {
+        // 只在第一次 seek 时记住播放状态（连续 seek 时保持第一次的状态）
+        if (!isSeeking) {
+            wasPlayingBeforeSeek = player.isPlaying
+            Log.d(TAG, "seekTo: First seek, wasPlaying=$wasPlayingBeforeSeek")
+        }
+        
         // 设置标志，防止 seek 期间的播放状态闪烁
         isSeeking = true
         
@@ -250,13 +284,27 @@ class MusicService : Service() {
         _currentPosition.value = position
         player.seekTo(position)
         
-        // 使用 Handler 在 seek 完成后重置标志（100ms 足够 ExoPlayer 完成 seek）
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        // 取消之前的恢复任务
+        seekHandler?.removeCallbacksAndMessages(null)
+        
+        // 使用 Handler 在 seek 完成后恢复播放状态
+        if (seekHandler == null) {
+            seekHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        }
+        
+        seekHandler?.postDelayed({
             isSeeking = false
-            // 确保播放状态与实际状态同步
+            
+            // 如果 seek 之前在播放，恢复播放状态
+            if (wasPlayingBeforeSeek && !player.isPlaying) {
+                Log.d(TAG, "seekTo: Restoring playback after seek")
+                player.play()
+            }
+            
+            // 同步播放状态
             _isPlaying.value = player.isPlaying
-            Log.d(TAG, "seekTo: Reset isSeeking flag, isPlaying=${player.isPlaying}")
-        }, 100)
+            Log.d(TAG, "seekTo: Seek completed, isPlaying=${player.isPlaying}")
+        }, 150)
     }
 
     fun fastForward() {
