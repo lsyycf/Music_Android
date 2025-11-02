@@ -227,6 +227,7 @@ class MusicViewModel(private val context: Context) : ViewModel() {
     private fun startPositionUpdates() {
         positionUpdateJob?.cancel()
         positionUpdateJob = viewModelScope.launch {
+            var updateCounter = 0
             while (isActive) {
                 // 拖动进度条时不更新位置，避免冲突
                 if (!_isDraggingProgressBar.value) {
@@ -234,6 +235,14 @@ class MusicViewModel(private val context: Context) : ViewModel() {
                         _currentPosition.value = it.getCurrentPosition()
                     }
                 }
+                
+                // 每5秒自动保存一次播放进度（50次 * 100ms = 5000ms）
+                updateCounter++
+                if (updateCounter >= 50) {
+                    updateCounter = 0
+                    saveCurrentState()
+                }
+                
                 delay(100)
             }
         }
@@ -926,6 +935,14 @@ class MusicViewModel(private val context: Context) : ViewModel() {
             try {
                 // 获取实时的播放位置
                 val currentPosition = musicService?.getCurrentPosition() ?: _currentPosition.value
+                
+                // 更新 Service 中的播放列表信息
+                musicService?.updatePlaylistInfo(
+                    _currentFolder.value,
+                    _songPaths.value,
+                    _currentIndex.value,
+                    _playMode.value
+                )
                 
                 // 只保存路径列表
                 val state = PlaylistState(

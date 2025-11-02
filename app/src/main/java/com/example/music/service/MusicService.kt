@@ -15,9 +15,16 @@ import com.example.music.MusicApplication
 import com.example.music.R
 import com.example.music.data.MusicItem
 import com.example.music.data.PlayMode
+import com.example.music.data.PlaylistState
+import com.example.music.data.PreferencesManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class MusicService : Service() {
     
@@ -27,6 +34,16 @@ class MusicService : Service() {
 
     private lateinit var player: ExoPlayer
     private val binder = MusicBinder()
+    
+    // 协程作用域，用于异步保存状态
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private lateinit var preferencesManager: PreferencesManager
+    
+    // 存储播放列表信息，用于在 onDestroy 时保存状态
+    private var currentFolder: String = ""
+    private var currentSongPaths: List<String> = emptyList()
+    private var currentIndexValue: Int = 0
+    private var currentPlayMode: PlayMode = PlayMode.RANDOM
 
     private val _currentPlaylist = MutableStateFlow<List<MusicItem>>(emptyList())
     val currentPlaylist: StateFlow<List<MusicItem>> = _currentPlaylist.asStateFlow()
@@ -84,6 +101,7 @@ class MusicService : Service() {
         Log.d(TAG, "onCreate: Service creating")
         super.onCreate()
         try {
+            preferencesManager = PreferencesManager(this)
             player = ExoPlayer.Builder(this).build().apply {
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(playing: Boolean) {
@@ -146,6 +164,30 @@ class MusicService : Service() {
     }
 
     override fun onDestroy() {
+        Log.d(TAG, "onDestroy: Service destroying, saving current state")
+        
+        // 保存当前播放状态
+        if (currentFolder.isNotEmpty() && currentSongPaths.isNotEmpty()) {
+            try {
+                val currentPosition = player.currentPosition
+                val state = PlaylistState(
+                    songPaths = currentSongPaths,
+                    currentIndex = currentIndexValue,
+                    position = currentPosition,
+                    playMode = currentPlayMode
+                )
+                
+                // 使用 runBlocking 确保在服务销毁前保存完成
+                kotlinx.coroutines.runBlocking {
+                    preferencesManager.savePlaylistState(currentFolder, state)
+                    Log.d(TAG, "onDestroy: Saved state - position: ${currentPosition}ms, index: $currentIndexValue")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "onDestroy: Error saving state", e)
+            }
+        }
+        
+        serviceScope.cancel()
         player.release()
         super.onDestroy()
     }
@@ -358,6 +400,23 @@ class MusicService : Service() {
             PlayMode.RANDOM
         }
         return _playMode.value
+    }
+    
+    /**
+     * 更新播放列表信息（由 ViewModel 调用）
+     * 用于在 Service 销毁时能够保存完整的播放状态
+     */
+    fun updatePlaylistInfo(
+        folder: String,
+        songPaths: List<String>,
+        index: Int,
+        playMode: PlayMode
+    ) {
+        currentFolder = folder
+        currentSongPaths = songPaths
+        currentIndexValue = index
+        currentPlayMode = playMode
+        Log.d(TAG, "updatePlaylistInfo: Updated - folder: $folder, paths: ${songPaths.size}, index: $index")
     }
 }
 
